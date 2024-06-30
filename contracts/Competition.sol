@@ -17,6 +17,8 @@ contract Competition is Ownable {
     uint public price;
     uint public token1Count;
     uint public token2Count;
+    uint public equivalentETH1;
+    uint public equivalentETH2;
 
     uint public numberTokens;
     bool public gameEnded;
@@ -31,7 +33,9 @@ contract Competition is Ownable {
         token2 = token2_;
         score[0] = 0;
         score[1] = 0;
-        wallet = payable(msg.sender);
+        wallet = payable(address(this));
+        equivalentETH1 = 100_000 * 1e9;
+        equivalentETH2 = 100_000 * 1e9;
         price = 1 gwei;
         token1Count = 100_000 * 10**18;
         token2Count = 100_000 * 10**18;
@@ -40,32 +44,108 @@ contract Competition is Ownable {
         tokensReturned = 0;
     }
 
-    function purchaseToken(ERC20 token) public payable {
+    function getTokenBalance(address token) public view returns (uint256 amount) {
+        // This shold just be token1Count or token2count
+        amount = ERC20(token).balanceOf(wallet);
+        return amount;
+    }
+
+    function getPrice(address token) public view returns (uint256 price_){
+        uint256 tokenBalance = getTokenBalance(token);
+        uint256 tokensCirculating = (100_000 * 10**18) - tokenBalance;
+        if (gameEnded) {
+            if (token == winner) {
+                uint ethBalance = address(this).balance;
+                price_ = ethBalance * 1e18 / tokensCirculating;
+            } else {
+                price_ = 0;
+            }
+            if (token != token1 && token != token2) {
+                revert("Token input is not one of game tokens");
+            }
+            return price_;
+        } else {
+            uint equivalentETH;
+
+            if (token==token1) {
+                equivalentETH = equivalentETH1;
+                price_ = equivalentETH * 1e18 / tokenBalance;
+            } else if (token==token2) {
+                equivalentETH = equivalentETH2;
+                price_ = equivalentETH * 1e18 / tokenBalance;
+            } else {
+                revert("Token input is not one of game tokens");
+            }
+
+            return price_;
+        }
+    }
+
+    // Function to calculate the amount of token1 to send back to the buyer
+    function getAmountOut(
+        uint256 tokenAReserve, // Current amount of token1 in the pool
+        uint256 tokenBReserve, // Current amount of token2 in the pool
+        uint256 amountIn // Amount of token2 being sent to buy token1
+    ) internal pure returns (uint256 amountTokenAOut, uint256 newTokenBReserve) {
+        // Ensure the amountIn is greater than 0
+        require(amountIn > 0, "Input amount must be greater than zero");
+        
+        // Calculate the new reserves after the swap
+        newTokenBReserve = tokenBReserve + amountIn;
+        
+        // Calculate the new tokenAReserve using the constant product formula
+        // k = tokenAReserve * tokenBReserve
+        // newTokenAReserve = k / newTokenBReserve
+        uint256 k = tokenAReserve * tokenBReserve;
+        uint256 newTokenAReserve = k / newTokenBReserve;
+        
+        // Calculate the amount of token1 to be sent back to the buyer
+        amountTokenAOut = tokenAReserve - newTokenAReserve;
+        
+        return (amountTokenAOut, newTokenBReserve);
+    }
+
+    
+
+    function purchaseToken(IERC20 token) public payable {
         require(gameInProgress == false, "Game in progress");
+
+        uint contractTokenBalance =getTokenBalance(address(token));
+
+        uint equivalentETH;
+
+        if (address(token)==token1) {
+            equivalentETH = equivalentETH1;
+        } else if (address(token)==token2) {
+            equivalentETH = equivalentETH2;
+        } else {
+            revert("Token input is not one of game tokens");
+        }
 
         // 100_000 tokens corresponds to .0001 eth
         // 1 token = .00_000_0001 eth = 1 gwei
         // Transfer the received Ether to the owner
-        numberTokens = (msg.value * 10**18) / price;
-        
-        require(numberTokens > 0, "You must send enough gwei to buy at least 1 token");
-        if (address(token) == token1 && token1Count < numberTokens){
-            revert("Insufficient token1 remaining");
+        (uint numTokens, uint newEquivalentETH) = getAmountOut(contractTokenBalance, equivalentETH, msg.value);
+        require(numTokens > 0, "You must send enough gwei to buy at least 1 token");
+        if (address(token) == token1 && contractTokenBalance < numTokens){
+            revert("Insufficient token1 remaining in supply");
         }
-        if (address(token) == token2 && token2Count < numberTokens){
-            revert("Insufficient token2 remaining");
+        if (address(token) == token2 && contractTokenBalance < numTokens){
+            revert("Insufficient token2 remaining in supply");
         }
 
-        // Transfer the tokens from the owner to the buyer
-        // Transfer the received Ether to the owner
-        // (bool sent, ) = wallet.call{value: msg.value}("");
-        // require(sent, "Failed to send Ether");
-
-        // Transfer the tokens from the owner to the buyer
-        bool success = token.transferFrom(wallet, msg.sender, numberTokens);
+        // // Transfer the tokens from the owner to the buyer
+        bool success = token.transfer(msg.sender, numTokens); // Bruh change numberTokens to numTokens
         require(success, "Token transfer failed");
+        // bool success = token.transferFrom(holder, msg.sender, numTokens);
+        // emit TransferResult(success);
+        // require(success, "Token transfer failed");
 
-        emit TokensPurchased(msg.sender, numberTokens);
+        if (address(token)==token1) {
+            equivalentETH1 = newEquivalentETH;
+        } else if (address(token)==token2) {
+            equivalentETH2 = newEquivalentETH;
+        }
     }
 
     function start() public onlyOwner {
@@ -95,13 +175,13 @@ contract Competition is Ownable {
         require(amount > 0, "Amount must be greater than zero");
         
 
-        balance = address(this).balance;
-        price = balance / (100_000 - tokensReturned); // get wei per token
+        uint256 winnerBalance = getTokenBalance(winner);
+        uint256 winnerTokensCirculating = (100_000 * 10**18) - winnerBalance;
+        uint256 ethBalance = address(this).balance;
 
-
-        uint ethAmount = (amount * price) / 10**18; // Adjusting for 18 decimals
+        (uint ethAmount, uint remainingBalance) = getAmountOut(ethBalance,winnerTokensCirculating,amount); 
         require(address(this).balance >= ethAmount, "Insufficient ETH in contract");
-
+        
         // Transfer tokens from the user to the contract
         bool success = ERC20(winner).transferFrom(msg.sender, address(this), amount);
         require(success, "Token transfer failed");

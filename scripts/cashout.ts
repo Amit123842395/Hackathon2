@@ -2,10 +2,10 @@ import { ethers } from "ethers";
 import * as hre from "hardhat";
 
 // Replace with your contract's address and ABI
-const contractAddress = "0xf953b3A269d80e3eB0F2947630Da976B896A8C5b";
+const contractAddress = "0x8f86403A4DE0BB5791fa46B8e795C547942fE4Cf";
 const contractAbi = require("../artifacts/contracts/Competition.sol/Competition.json").abi;
 const tokenAbi = require("../artifacts/contracts/Token.sol/Token.json").abi;
-const tokenAddress = "0x86A2EE8FAf9A840F7a2c64CA3d51209F9A02081D";
+const tokenAddress = "0x99bbA657f2BbC93c02D617f8bA121cB8Fc104Acf";
 
 async function main() {
     // Replace with the user's private key or use the hardhat config
@@ -18,7 +18,7 @@ async function main() {
     const tokenContract = new hre.ethers.Contract(tokenAddress, tokenAbi, wallet);
 
     // Define the amount of tokens to cash out
-    const amountToCashOut = ethers.parseUnits("69000", 18); // Example: cash out 10 tokens
+    const amountToCashOut = ethers.parseUnits("1", 18); // Example: cash out 10 tokens
 
     // Approve the contract to spend tokens on behalf of the user
     try {

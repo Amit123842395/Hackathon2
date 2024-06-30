@@ -23,7 +23,7 @@ async function main() {
 
   console.log('Competition Contract Deployed at ' + competition.target);
 
-  const approveTx1 = await token1.approve(competition.target,ethers .parseUnits("100000",18));
+  const approveTx1 = await token1.approve(competition.target,ethers.parseUnits("100000",18));
   const approveTx2 = await token2.approve(competition.target, ethers.parseUnits("100000",18));
   console.log("Token spending approved.");
 
